@@ -14,7 +14,12 @@ set(RUNTIME_TARGET
 # OpenXR 1.0
 set(XR_API_MAJOR "1")
 
-add_library(${RUNTIME_TARGET} SHARED target.c libopenxr.def)
+# Use STATIC library for iOS, SHARED for other platforms
+if(XRT_HAVE_APPLE AND IOS)
+	add_library(${RUNTIME_TARGET} STATIC target.c)
+else()
+	add_library(${RUNTIME_TARGET} SHARED target.c libopenxr.def)
+endif()
 
 # Note: Order may matter in these lists!
 target_link_libraries(${RUNTIME_TARGET} PUBLIC aux_vk aux_os aux_util aux_math)

@@ -15,7 +15,11 @@ target_link_libraries(
 		target_instance
 	)
 
-install(TARGETS monado-service RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+if(APPLE)
+	install(TARGETS monado-service RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR} BUNDLE DESTINATION ${CMAKE_INSTALL_BINDIR})
+else()
+	install(TARGETS monado-service RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()
 
 if(XRT_HAVE_SYSTEMD)
 	set(SERVICE_INPUT "${CMAKE_CURRENT_SOURCE_DIR}/monado.in.service")
