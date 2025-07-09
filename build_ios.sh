@@ -38,6 +38,7 @@ echo "Configuring CMake..."
 cmake -G Xcode \
     -DCMAKE_TOOLCHAIN_FILE=ios.toolchain.cmake \
     -DCMAKE_BUILD_TYPE=Release \
+    -DBUILD_SHARED_LIBS=ON \
     -DXRT_BUILD_DRIVER_ARKIT=ON \
     -DXRT_HAVE_APPLE=ON \
     -DIOS=ON \
@@ -67,13 +68,13 @@ echo "Unified OpenXR library can be found in: build-xcode/src/xrt/targets/openxr
 
 echo ""
 echo "To use the unified OpenXR library in your iOS project:"
-echo "1. Link against libopenxr_monado.a from build-xcode/src/xrt/targets/openxr/Release-iphoneos/"
+echo "1. Link against libopenxr_monado.dylib from build-xcode/src/xrt/targets/openxr/Release-iphoneos/"
 echo "2. Add the ARKit framework to your project"
 echo "3. Add the Metal framework to your project"
 echo "4. Include the necessary headers from src/xrt/include"
 echo "5. Set up MoltenVK for Vulkan support"
 echo ""
-echo "This single static library includes:"
+echo "This single dynamic library includes:"
 echo "- OpenXR runtime implementation"
 echo "- ARKit driver for iOS head tracking"
 echo "- Metal compositor for rendering"
