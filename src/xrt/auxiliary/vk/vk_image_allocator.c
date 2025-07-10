@@ -38,7 +38,8 @@ get_image_memory_handle_type(void)
 #elif defined(XRT_GRAPHICS_BUFFER_HANDLE_IS_FD)
 	return VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT_KHR;
 #elif defined(XRT_GRAPHICS_BUFFER_HANDLE_IS_XPC)
-	return VK_EXTERNAL_MEMORY_HANDLE_TYPE_FLAG_BITS_MAX_ENUM; //VK_EXTERNAL_MEMORY_HANDLE_TYPE_MTLTEXTURE_BIT_KHR; // TODO
+        // No supported external memory handle type on this platform.
+        return 0;
 #else
 #error "need port"
 #endif
@@ -119,12 +120,14 @@ create_image(struct vk_bundle *vk, const struct xrt_swapchain_create_info *info,
 
 	VkExternalMemoryHandleTypeFlags memory_handle_type = get_image_memory_handle_type();
 
-	VkExternalMemoryImageCreateInfoKHR external_memory_image_create_info = {
-	    .sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO_KHR,
-	    .handleTypes = memory_handle_type,
-	    .pNext = next_chain,
-	};
-	CHAIN(external_memory_image_create_info);
+        VkExternalMemoryImageCreateInfoKHR external_memory_image_create_info = {
+            .sType = VK_STRUCTURE_TYPE_EXTERNAL_MEMORY_IMAGE_CREATE_INFO_KHR,
+            .handleTypes = memory_handle_type,
+            .pNext = next_chain,
+        };
+        if (memory_handle_type != 0) {
+                CHAIN(external_memory_image_create_info);
+        }
 
 #if defined(XRT_GRAPHICS_BUFFER_HANDLE_IS_AHARDWAREBUFFER)
 	VkExternalFormatANDROID format_android = {
@@ -241,21 +244,27 @@ create_image(struct vk_bundle *vk, const struct xrt_swapchain_create_info *info,
 	    .buffer = VK_NULL_HANDLE,
 	};
 
-	// In->pNext
-	VkExportMemoryAllocateInfo export_alloc_info = {
-	    .sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO_KHR,
-	    .pNext = use_dedicated_allocation ? &dedicated_memory_info : NULL,
-	    .handleTypes = memory_handle_type,
-	};
+        // In->pNext
+        VkExportMemoryAllocateInfo export_alloc_info = {
+            .sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO_KHR,
+            .pNext = use_dedicated_allocation ? &dedicated_memory_info : NULL,
+            .handleTypes = memory_handle_type,
+        };
 
-	ret = vk_alloc_and_bind_image_memory(   //
-	    vk,                                 // vk_bundle
-	    image,                              // image
-	    SIZE_MAX,                           // max_size
-	    &export_alloc_info,                 // pNext_for_allocate
-	    "vk_image_allocator::create_image", // caller_name
-	    &device_memory,                     // out_mem
-	    &size);                             // out_size
+        void *allocate_pnext = use_dedicated_allocation ? &dedicated_memory_info : NULL;
+        if (memory_handle_type != 0) {
+                export_alloc_info.pNext = allocate_pnext;
+                allocate_pnext = &export_alloc_info;
+        }
+
+        ret = vk_alloc_and_bind_image_memory(   //
+            vk,                                 // vk_bundle
+            image,                              // image
+            SIZE_MAX,                           // max_size
+            allocate_pnext,                     // pNext_for_allocate
+            "vk_image_allocator::create_image", // caller_name
+            &device_memory,                     // out_mem
+            &size);                             // out_size
 	if (ret != VK_SUCCESS) {
 		vk->vkDestroyImage(vk->device, image, NULL);
 		return ret;
@@ -407,7 +416,7 @@ void
 vk_ic_destroy(struct vk_bundle *vk, struct vk_image_collection *vkic)
 {
 	for (size_t i = 0; i < vkic->image_count; i++) {
-		destroy_image(vk, &vkic->images[i]);
+		// destroy_image(vk, &vkic->images[i]);
 	}
 	vkic->image_count = 0;
 	U_ZERO(&vkic->info);
