@@ -19,6 +19,13 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <stdarg.h>
+#include <string.h>
+#ifdef XRT_OS_APPLE
+#include <TargetConditionals.h>
+#if TARGET_OS_IPHONE
+#include <os/log.h>
+#endif
+#endif
 
 
 /*
@@ -380,23 +387,45 @@ do_print(const char *file, int line, const char *func, enum u_logging_level leve
 	assert(storage[printed] == '\0');
 
 
+
 #ifdef XRT_OS_ANDROID
 
-	android_LogPriority prio = u_log_convert_priority(level);
-	__android_log_write(prio, func, storage);
+        android_LogPriority prio = u_log_convert_priority(level);
+        __android_log_write(prio, func, storage);
 
-#elif defined XRT_OS_WINDOWS || defined XRT_OS_LINUX || defined XRT_OS_APPLE
+#elif defined XRT_OS_APPLE
 
-	// We want a newline, so add it, then null-terminate again.
-	storage[printed++] = '\n';
-	storage[printed] = '\0'; // Don't count zero termination as printed.
+#if TARGET_OS_IPHONE
+        os_log_type_t log_type = OS_LOG_TYPE_DEFAULT;
+        switch (level) {
+        case U_LOGGING_TRACE:
+        case U_LOGGING_DEBUG: log_type = OS_LOG_TYPE_DEBUG; break;
+        case U_LOGGING_INFO: log_type = OS_LOG_TYPE_INFO; break;
+        case U_LOGGING_WARN:
+        case U_LOGGING_ERROR: log_type = OS_LOG_TYPE_ERROR; break;
+        default: break;
+        }
+        os_log_with_type(OS_LOG_DEFAULT, log_type, "%{public}s", storage);
+        printed = (int)strlen(storage);
+#else  // TARGET_OS_IPHONE
+        // We want a newline, so add it, then null-terminate again.
+        storage[printed++] = '\n';
+        storage[printed] = '\0'; // Don't count zero termination as printed.
+        fwrite(storage, printed, 1, stderr);
+#endif // TARGET_OS_IPHONE
+
+#elif defined XRT_OS_WINDOWS || defined XRT_OS_LINUX
+
+        // We want a newline, so add it, then null-terminate again.
+        storage[printed++] = '\n';
+        storage[printed] = '\0'; // Don't count zero termination as printed.
 
 #if defined XRT_OS_WINDOWS
-	// Visual Studio output needs the newline char
-	OutputDebugStringA(storage);
+        // Visual Studio output needs the newline char
+        OutputDebugStringA(storage);
 #endif
 
-	fwrite(storage, printed, 1, stderr);
+        fwrite(storage, printed, 1, stderr);
 
 #else
 #error "Port needed for logging function"

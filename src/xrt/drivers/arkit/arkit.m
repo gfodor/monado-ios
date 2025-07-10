@@ -150,7 +150,7 @@ struct xrt_device *arkit_device_create(void) {@autoreleasepool {
 	this->timestamp = clock_gettime_nsec_np(CLOCK_MONOTONIC);
 	this->pose = (struct xrt_pose)XRT_POSE_IDENTITY;
 
-	dispatch_sync(dispatch_get_main_queue(), ^{@autoreleasepool { // TODO: necessary?
+	void (^block)(void) = ^{@autoreleasepool { // TODO: necessary?
 		this->session = [ARSession new];
 		this->session.delegate = this;
 		ARWorldTrackingConfiguration *const config = [ARWorldTrackingConfiguration new];
@@ -169,7 +169,12 @@ struct xrt_device *arkit_device_create(void) {@autoreleasepool {
 		}
 		config.initialWorldMap = TryLoadCalibration();
 		[this->session runWithConfiguration:config];
-	}});
+	}};
+	if ([NSThread isMainThread]) {
+		block();
+	} else {
+		dispatch_sync(dispatch_get_main_queue(), block);
+	}
 
 	return &[this retain]->base;
 }}

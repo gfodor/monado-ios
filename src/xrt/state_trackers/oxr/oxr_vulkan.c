@@ -492,6 +492,12 @@ oxr_vk_get_physical_device(struct oxr_logger *log,
 {
 	GET_PROC(vkEnumeratePhysicalDevices);
 	GET_PROC(vkGetPhysicalDeviceProperties2);
+	if (!vkGetPhysicalDeviceProperties2) {
+		vkGetPhysicalDeviceProperties2 =
+		(PFN_vkGetPhysicalDeviceProperties2)getProc(
+			vkInstance,
+			"vkGetPhysicalDeviceProperties2KHR");
+	}
 	VkResult vk_ret;
 	uint32_t count;
 

@@ -31,7 +31,7 @@ static void comp_window_uikit_destroy(struct comp_target *const target) {
 }
 
 static bool comp_window_uikit_init(struct comp_target *const target) {
-	dispatch_sync(dispatch_get_main_queue(), ^{
+	void (^initBlock)(void) = ^{
 		struct comp_window_uikit *const this = (struct comp_window_uikit*)target;
 		this->window = [MetalWindow.alloc initWithFrame:UIScreen.mainScreen.bounds];
 		this->window.contentScaleFactor = UIScreen.mainScreen.nativeScale;
@@ -48,7 +48,12 @@ static bool comp_window_uikit_init(struct comp_target *const target) {
 
 		this->window.rootViewController = [UIViewController new];
 		[this->window makeKeyAndVisible];
-	});
+	};
+	if ([NSThread isMainThread]) {
+		initBlock();
+	} else {
+		dispatch_sync(dispatch_get_main_queue(), initBlock);
+	}
 	return true;
 }
 
@@ -59,13 +64,18 @@ static bool comp_window_uikit_init_swapchain(struct comp_target *const target, c
 	const UIWindow *const window = this->window;
 	__block VkResult result = VK_ERROR_UNKNOWN;
 	__block VkSurfaceKHR surface = VK_NULL_HANDLE;
-	dispatch_sync(dispatch_get_main_queue(), ^{
+	void (^swapchainBlock)(void) = ^{
 		const VkMetalSurfaceCreateInfoEXT surface_info = {
 			.sType = VK_STRUCTURE_TYPE_METAL_SURFACE_CREATE_INFO_EXT,
 			.pLayer = (CAMetalLayer*)window.layer,
 		};
 		result = pfn_vkCreateMetalSurfaceEXT(instance, &surface_info, NULL, &surface);
-	});
+	};
+	if ([NSThread isMainThread]) {
+		swapchainBlock();
+	} else {
+		dispatch_sync(dispatch_get_main_queue(), swapchainBlock);
+	}
 	if(result != VK_SUCCESS) {
 		COMP_ERROR(target->c, "vkCreateMetalSurfaceEXT: %s", vk_result_string(result));
 	} else {
