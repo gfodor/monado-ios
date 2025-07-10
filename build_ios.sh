@@ -18,7 +18,7 @@ if ! command -v xcodebuild &> /dev/null; then
     exit 1
 fi
 
-# Check if required dependencies are available
+# Check if required dependencies are available (only if not already installed)
 if ! brew list eigen &> /dev/null; then
     echo "Installing Eigen3..."
     brew install eigen
@@ -29,28 +29,59 @@ if ! brew list molten-vk &> /dev/null; then
     brew install molten-vk
 fi
 
-# Clean previous build
-echo "Cleaning previous build..."
-rm -rf build-xcode
+# Check if we need a clean build
+NEED_CLEAN=false
+NEED_CMAKE=false
 
-# Configure CMake for iOS with ARKit support
-echo "Configuring CMake..."
-cmake -G Xcode \
-    -DCMAKE_TOOLCHAIN_FILE=ios.toolchain.cmake \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DBUILD_SHARED_LIBS=OFF \
-    -DXRT_BUILD_DRIVER_ARKIT=ON \
-    -DXRT_HAVE_APPLE=ON \
-    -DIOS=ON \
-    -DEIGEN3_INCLUDE_DIR=/opt/homebrew/opt/eigen/include/eigen3 \
-    -DVulkan_INCLUDE_DIR=/opt/homebrew/opt/molten-vk/libexec/include \
-    -DVulkan_LIBRARY=/opt/homebrew/opt/molten-vk/lib/libMoltenVK.dylib \
-    -DXRT_HAVE_VULKAN=ON \
-    -DXRT_MODULE_COMPOSITOR_MAIN=ON \
-    -DXRT_FEATURE_SERVICE=OFF \
-    -DXRT_FEATURE_OPENXR=ON \
-    -DXRT_BUILD_DRIVER_WMR=OFF \
-    -B build-xcode
+# Force clean build if --clean flag is passed
+if [[ "$1" == "--clean" ]]; then
+    NEED_CLEAN=true
+    NEED_CMAKE=true
+    echo "Clean build requested..."
+fi
+
+# Check if build directory exists
+if [ ! -d "build-xcode" ]; then
+    NEED_CMAKE=true
+    echo "Build directory doesn't exist, will configure CMake..."
+fi
+
+# Check if CMakeCache.txt exists and is newer than CMakeLists.txt
+if [ -f "build-xcode/CMakeCache.txt" ] && [ -f "CMakeLists.txt" ]; then
+    if [ "CMakeLists.txt" -nt "build-xcode/CMakeCache.txt" ]; then
+        NEED_CMAKE=true
+        echo "CMakeLists.txt modified, will reconfigure..."
+    fi
+fi
+
+# Clean previous build only if needed
+if [ "$NEED_CLEAN" = true ]; then
+    echo "Cleaning previous build..."
+    rm -rf build-xcode
+fi
+
+# Configure CMake for iOS with ARKit support (only if needed)
+if [ "$NEED_CMAKE" = true ]; then
+    echo "Configuring CMake..."
+    cmake -G Xcode \
+        -DCMAKE_TOOLCHAIN_FILE=ios.toolchain.cmake \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DBUILD_SHARED_LIBS=OFF \
+        -DXRT_BUILD_DRIVER_ARKIT=ON \
+        -DXRT_HAVE_APPLE=ON \
+        -DIOS=ON \
+        -DEIGEN3_INCLUDE_DIR=/opt/homebrew/opt/eigen/include/eigen3 \
+        -DVulkan_INCLUDE_DIR=/opt/homebrew/opt/molten-vk/libexec/include \
+        -DVulkan_LIBRARY=/opt/homebrew/opt/molten-vk/lib/libMoltenVK.dylib \
+        -DXRT_HAVE_VULKAN=ON \
+        -DXRT_MODULE_COMPOSITOR_MAIN=ON \
+        -DXRT_FEATURE_SERVICE=OFF \
+        -DXRT_FEATURE_OPENXR=ON \
+        -DXRT_BUILD_DRIVER_WMR=OFF \
+        -B build-xcode
+else
+    echo "Skipping CMake configuration (build directory is up to date)..."
+fi
 
 # Build all required components (excluding test targets)
 echo "Building all required components..."
@@ -114,43 +145,69 @@ for lib in "${STATIC_LIBRARIES[@]}"; do
     fi
 done
 
-# Extract all object files from static libraries
-echo "Extracting object files from static libraries..."
-cd "$OUTPUT_DIR"
-rm -rf extracted_objects
-mkdir extracted_objects
-cd extracted_objects
+# Check if we need to rebuild the dylib
+NEED_DYLIB_REBUILD=false
 
-for lib in "${EXISTING_LIBS[@]}"; do
-    if [ -f "$lib" ]; then
-        echo "Extracting from $(basename "$lib")..."
-        ar x "$lib"
-    fi
-done
+# Check if output dylib exists
+if [ ! -f "$OUTPUT_LIB" ]; then
+    NEED_DYLIB_REBUILD=true
+    echo "Output dylib doesn't exist, will create it..."
+fi
 
-# Create the unified dynamic library using clang++ directly
-echo "Creating unified dynamic library using clang++..."
-MOLTENVK_PATH="/Users/gfodor/portal/ios-OpenXR-SDK-Source/external/MoltenVK/MoltenVK/static/MoltenVK.xcframework/ios-arm64/libMoltenVK.a"
-clang++ -dynamiclib -o "$OUTPUT_LIB" *.o \
-    "$MOLTENVK_PATH" \
-    -target arm64-apple-ios15.0 \
-    -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.5.sdk \
-    -framework Foundation \
-    -framework ARKit \
-    -framework Metal \
-    -framework MetalKit \
-    -framework QuartzCore \
-    -framework UIKit \
-    -framework CoreGraphics \
-    -lc++ \
-    -install_name "@rpath/libopenxr_monado.dylib" \
-    -Wl,-undefined,suppress
+# Check if any static library is newer than the output dylib
+if [ "$NEED_DYLIB_REBUILD" = false ] && [ -f "$OUTPUT_LIB" ]; then
+    for lib in "${EXISTING_LIBS[@]}"; do
+        if [ "$lib" -nt "$OUTPUT_LIB" ]; then
+            NEED_DYLIB_REBUILD=true
+            echo "Static library $(basename "$lib") is newer than dylib, will rebuild..."
+            break
+        fi
+    done
+fi
 
-cd ..
-rm -rf extracted_objects
+if [ "$NEED_DYLIB_REBUILD" = false ]; then
+    echo "Unified dylib is up to date, skipping rebuild..."
+    echo "Existing dylib: $OUTPUT_LIB"
+    ls -lh "$OUTPUT_LIB"
+else
+    # Extract all object files from static libraries
+    echo "Extracting object files from static libraries..."
+    cd "$OUTPUT_DIR"
+    rm -rf extracted_objects
+    mkdir extracted_objects
+    cd extracted_objects
 
-echo "Unified library created: $OUTPUT_LIB"
-ls -lh "$OUTPUT_LIB"
+    for lib in "${EXISTING_LIBS[@]}"; do
+        if [ -f "$lib" ]; then
+            echo "Extracting from $(basename "$lib")..."
+            ar x "$lib"
+        fi
+    done
+
+    # Create the unified dynamic library using clang++ directly
+    echo "Creating unified dynamic library using clang++..."
+    MOLTENVK_PATH="/Users/gfodor/portal/ios-OpenXR-SDK-Source/external/MoltenVK/MoltenVK/static/MoltenVK.xcframework/ios-arm64/libMoltenVK.a"
+    clang++ -dynamiclib -o "$OUTPUT_LIB" *.o \
+        "$MOLTENVK_PATH" \
+        -target arm64-apple-ios15.0 \
+        -isysroot /Applications/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.5.sdk \
+        -framework Foundation \
+        -framework ARKit \
+        -framework Metal \
+        -framework MetalKit \
+        -framework QuartzCore \
+        -framework UIKit \
+        -framework CoreGraphics \
+        -lc++ \
+        -install_name "@rpath/libopenxr_monado.dylib" \
+        -Wl,-undefined,suppress
+
+    cd ..
+    rm -rf extracted_objects
+
+    echo "Unified library created: $OUTPUT_LIB"
+    ls -lh "$OUTPUT_LIB"
+fi
 
 echo ""
 echo "To use this unified dynamic library in your iOS project:"
